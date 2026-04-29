@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pedidos + Albarán (Catálogo fijo)</title>
+  <style>
+    :root { --b:#111; --g:#666; --bg:#f6f7fb; --card:#fff; --pri:#2563eb; --ok:#16a34a; --danger:#dc2626; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--b)}
+    header{position:sticky;top:0;background:var(--card);border-bottom:1px solid #e5e7eb;padding:12px 14px;z-index:5}
+    header h1{margin:0;font-size:18px}
+    .wrap{max-width:980px;margin:0 auto;padding:14px}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px}
+    .tab{border:1px solid #e5e7eb;background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer}
+    .tab.active{background:var(--pri);color:#fff;border-color:var(--pri)}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    @media(min-width:860px){ .grid{grid-template-columns:1fr 1fr} }
+    .card{background:var(--card);border:1px solid #e5e7eb;border-radius:14px;padding:14px}
+    .card h2{margin:0 0 10px;font-size:16px}
+    label{display:block;font-size:12px;color:var(--g);margin-top:10px}
+    input, select, textarea{
+      width:100%;padding:10px 10px;border:1px solid #d1d5db;border-radius:10px;font-size:15px;background:#fff
+    }
+    textarea{min-height:78px;resize:vertical}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+    button{border:0;border-radius:12px;padding:10px 12px;font-size:15px;cursor:pointer;background:#111;color:#fff}
+    button.primary{background:var(--pri)}
+    button.ok{background:var(--ok)}
+    button.danger{background:var(--danger)}
+    button.ghost{background:#fff;color:#111;border:1px solid #e5e7eb}
+    table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px}
+    th,td{border-bottom:1px solid #eee;padding:8px;text-align:left;vertical-align:top}
+    th{color:#374151;font-weight:600;background:#fafafa}
+    .right{text-align:right}
+    .muted{color:var(--g);font-size:13px}
+    .hidden{display:none}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:12px;margin-left:6px}
+
+    /* Zona imprimible */
+    #printArea{background:#fff;border-radius:14px;border:1px solid #e5e7eb;padding:14px}
+    #printArea h3{margin:0 0 6px}
+    .albaran-head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .box{border:1px solid #e5e7eb;border-radius:12px;padding:10px;min-width:260px}
+    .kv{display:grid;grid-template-columns:130px 1fr;gap:6px;font-size:14px}
+    .kv div:nth-child(odd){color:#374151;font-weight:600}
+    .totals{max-width:380px;margin-left:auto}
+    .totals .kv{grid-template-columns:190px 1fr}
+
+    @media print{
+      header, .tabs, .no-print { display:none !important; }
+      body{background:#fff}
+      #printArea{border:0}
+      .wrap{padding:0;max-width:none}
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>📦 Pedidos + Albarán</h1>
+  <div class="muted">Catálogo fijo por tipos + empresa fija. Precios con IVA incluido (solo se desglosa).</div>
+</header>
+
+<div class="wrap">
+  <div class="tabs no-print">
+    <div class="tab active" data-tab="pedido">Pedido</div>
+    <div class="tab" data-tab="albaran">Albarán</div>
+  </div>
+
+  <!-- DEBUG -->
+  <section class="card no-print" id="debugBox">
+    <h2>🛠️ Debug</h2>
+    <div class="muted" id="debugText">Cargando…</div>
+  </section>
+
+  <!-- TAB: PEDIDO -->
+  <section id="tab-pedido" class="grid">
+    <div class="card">
+      <h2>➕ Añadir producto al pedido</h2>
+
+      <label>Producto (agrupado por tipo)</label>
+      <select id="selProducto"></select>
+
+      <div class="row">
+        <div>
+          <label>Cantidad</label>
+          <input id="inpCantidad" type="number" min="1" value="1" />
+        </div>
+        <div>
+          <label>Precio (IVA incluido, fijo)</label>
+          <input id="inpPrecio" type="number" disabled />
+        </div>
+      </div>
+
+      <div class="btns">
+        <button class="ok" id="btnAdd">Añadir al pedido</button>
+        <button class="ghost" id="btnClear">Limpiar</button>
+      </div>
+
+      <p class="muted" style="margin-top:10px">
+        El total no suma IVA porque ya está incluido en el precio. Se muestra desglose base + IVA incluido.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>🧾 Pedido actual</h2>
+      <div id="pedidoTabla"></div>
+
+      <div class="row">
+        <div>
+          <label>IVA incluido (%)</label>
+          <input id="inpIVA" type="number" min="0" step="0.01" value="21" />
+        </div>
+        <div>
+          <label>Nº Albarán (auto)</label>
+          <input id="inpNumAlbaran" type="text" disabled />
+        </div>
+      </div>
+
+      <div class="btns">
+        <button class="primary" id="btnAlb">Generar albarán</button>
+        <button class="danger" id="btnNew">Nuevo pedido (borrar)</button>
+      </div>
+      <p class="muted">El catálogo no se borra. Solo se borra el pedido actual.</p>
+    </div>
+  </section>
+
+  <!-- TAB: ALBARÁN -->
+  <section id="tab-albaran" class="hidden">
+    <div class="grid">
+      <div class="card no-print">
+        <h2>🏢 Datos del albarán</h2>
+
+        <label>Empresa (fijo)</label>
+        <input id="empNombre" disabled />
+
+        <div class="row">
+          <div>
+            <label>Contacto (fijo)</label>
+            <input id="empContacto" disabled />
+          </div>
+          <div>
+            <label>NIF/CIF (fijo)</label>
+            <input id="empNif" disabled />
+          </div>
+        </div>
+
+        <label>Dirección (fijo)</label>
+        <input id="empDir" disabled />
+
+        <hr style="border:none;border-top:1px solid #eee;margin:14px 0">
+
+        <label>Cliente</label>
+        <input id="cliNombre" placeholder="Ej: Supermercado..." />
+
+        <label>Dirección cliente (opcional)</label>
+        <input id="cliDir" placeholder="Ej: Calle..." />
+
+        <div class="row">
+          <div>
+            <label>Fecha</label>
+            <input id="albFecha" type="date" />
+          </div>
+          <div>
+            <label>Nº Albarán</label>
+            <input id="albNum" />
+          </div>
+        </div>
+
+        <label>Observaciones (opcional)</label>
+        <textarea id="albObs" placeholder="Ej: Entrega por la mañana…"></textarea>
+
+        <div class="btns">
+          <button class="primary" id="btnRefresh">Actualizar vista</button>
+          <button class="ok" onclick="window.print()">Imprimir / Guardar PDF</button>
+          <button class="ghost" onclick="cambiarTab('pedido')">Volver al pedido</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Vista del albarán</h2>
+        <div id="printArea"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  // ==============================
+  // EMPRESA FIJA (edita aquí)
+  // ==============================
+  const EMPRESA_FIJA = {
+    nombre: "DAMNE NICOLLE PEÑA GOMEZ",
+    contacto: "600 000 000 · pedidos@tudominio.com",
+    nif: "B12345678",
+    direccion: "Barcelona"
+  };
+
+  // ==============================
+  // CATÁLOGO FIJO POR TIPOS
+  // Basado en [Book.xlsx](https://onedrive.live.com/personal/45305304ca9f1e00/_layouts/15/doc.aspx?resid=93cd20fe-db23-4000-bc1e-8e1203e88b0e&cid=45305304ca9f1e00&EntityRepresentationId=6e094064-e94e-45b2-af22-21101079c1e0) hoja "Productos" 【1-431d9a】
+  // ==============================
+  const CATALOGO_FIJO = [
+    // Pulpa / Fruta
+    { id:"P1",  tipo:"Helados", nombre:"Coco fresa", precio:1.00 },
+    { id:"P2",  tipo:"Helados", nombre:"Coco piña",  precio:1.00 },
+    { id:"P3",  tipo:"Helados", nombre:"Coco",       precio:1.00 },
+    { id:"P4",  tipo:"Helados", nombre:"Fresa",      precio:1.00 },
+    { id:"P5",  tipo:"Helados", nombre:"Maracuya",   precio:1.00 },
+    { id:"P6",  tipo:"Helados", nombre:"Piña",       precio:1.00 },
+    { id:"P7",  tipo:"Helados", nombre:"Mango",      precio:1.00 },
+    { id:"P8",  tipo:"Helados", nombre:"Lulo",       precio:1.00 },
+    { id:"P9",  tipo:"Helados", nombre:"Mora",       precio:1.00 },
+    { id:"P10", tipo:"Helados", nombre:"Tutufruti",  precio:1.00 },
+    { id:"P11", tipo:"Helados", nombre:"Guayaba",    precio:1.00 },
+    { id:"P12", tipo:"Helados", nombre:"Guanabana",  precio:1.00 },
+    { id:"P17", tipo:"Helados", nombre:"Mango verde",precio:1.00 },
+    { id:"P18", tipo:"Helados", nombre:"Lucuma",     precio:1.00 },
+
+    // Lácteos
+    { id:"P13", tipo:"Helados", nombre:"Queso", precio:1.00 },
+    { id:"P27", tipo:"Lácteos", nombre:"Queso fresco latino 300GR", precio:2.65 },
+    { id:"P28", tipo:"Lácteos", nombre:"Queso fresco latino 800GR", precio:6.60 },
+    { id:"P33", tipo:"Lácteos", nombre:"Nata-Mantequilla Hondu 450GR", precio:4.60 },
+
+    // Dulces
+    { id:"P14", tipo:"Helados", nombre:"Dulce de leche", precio:1.00 },
+    { id:"P15", tipo:"Helados", nombre:"Mani", precio:1.00 },
+    { id:"P16", tipo:"Helados", nombre:"Chocolate", precio:1.00 },
+
+    // Arepas
+    { id:"P19", tipo:"Arepas", nombre:"Arepa Blanca (Vict)", precio:1.80 },
+    { id:"P20", tipo:"Arepas", nombre:"Arepa Maiz Amarillo (Vict)", precio:1.80 },
+    { id:"P21", tipo:"Arepas", nombre:"Arepas queso (Vict)", precio:3.50 },
+    { id:"P22", tipo:"Arepas", nombre:"Arepas de choclo (Vict)", precio:3.50 },
+    { id:"P23", tipo:"Arepas", nombre:"Arepas de yuca (Vict)", precio:3.50 },
+    { id:"P29", tipo:"Arepas", nombre:"Arepas de maiz con queso", precio:3.50 },
+
+    // Embutidos
+    { id:"P24", tipo:"Embutidos", nombre:"Salami Especial Domi 1K (Induveca)", precio:8.95 },
+    { id:"P25", tipo:"Embutidos", nombre:"Salami Especial Domi 500GR (Induveca)", precio:4.85 },
+    { id:"P26", tipo:"Embutidos", nombre:"Chorizo colombiano (Vict)", precio:4.80 },
+    { id:"P30", tipo:"Embutidos", nombre:"Chorizo cervezero Ecuatoriano", precio:4.95 },
+    { id:"P31", tipo:"Embutidos", nombre:"Salchicha huachana", precio:4.95 },
+
+    // Bebidas
+    { id:"P32", tipo:"Bebidas", nombre:"Chicha morada 1L", precio:4.70 },
+  ];
+
+  // ---------- Persistencia (solo pedido y contador) ----------
+  const LS_PEDIDO   = "pedidoActual_fixed_v1";
+  const LS_CONTADOR = "contadorAlbaran_fixed_v1";
+
+  // ---------- Estado ----------
+  let pedido = { lineas: [], iva: 21, numAlbaran: "" };
+
+  // ---------- Utilidades ----------
+  const eur = (n) => (Number(n || 0)).toFixed(2) + " €";
+  const escapeHtml = (str) => String(str || "")
+    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+
+  function setDebug(msg) {
+    const el = document.getElementById("debugText");
+    if (el) el.textContent = msg;
+  }
+
+  window.addEventListener("error", (e) => {
+    setDebug("ERROR JS: " + (e.message || "desconocido"));
+  });
+
+  function generarNumAlbaran(incrementar=true) {
+    let c = Number(localStorage.getItem(LS_CONTADOR) || "0");
+    if (incrementar) {
+      c += 1;
+      localStorage.setItem(LS_CONTADOR, String(c));
+    } else if (c === 0) {
+      c = 1;
+      localStorage.setItem(LS_CONTADOR, String(c));
+    }
+    const y = new Date().getFullYear();
+    return `ALB-${y}-${String(c).padStart(4,"0")}`;
+  }
+
+  function loadPedido() {
+    const raw = localStorage.getItem(LS_PEDIDO);
+    if (raw) {
+      try { pedido = JSON.parse(raw) || pedido; } catch {}
+    }
+    if (pedido.iva === undefined) pedido.iva = 21;
+    if (!pedido.numAlbaran) pedido.numAlbaran = generarNumAlbaran(false);
+  }
+
+  function savePedido() {
+    localStorage.setItem(LS_PEDIDO, JSON.stringify(pedido));
+  }
+
+  // ---------- Tabs ----------
+  document.querySelectorAll(".tab").forEach(t => {
+    t.addEventListener("click", () => cambiarTab(t.dataset.tab));
+  });
+
+  function cambiarTab(nombre) {
+    document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x.dataset.tab === nombre));
+    document.querySelectorAll("section[id^='tab-']").forEach(s => s.classList.add("hidden"));
+    document.getElementById("tab-" + nombre).classList.remove("hidden");
+
+    if (nombre === "pedido") renderPedido();
+    if (nombre === "albaran") refrescarAlbaran();
+  }
+
+  // ---------- Selector agrupado por tipo ----------
+  function renderSelector() {
+    const sel = document.getElementById("selProducto");
+    const precioInput = document.getElementById("inpPrecio");
+    if (!sel || !precioInput) return;
+
+    sel.innerHTML = "";
+
+    if (!Array.isArray(CATALOGO_FIJO) || CATALOGO_FIJO.length === 0) {
+      setDebug("Catálogo vacío: revisa CATALOGO_FIJO.");
+      return;
+    }
+
+    const tipos = [...new Set(CATALOGO_FIJO.map(p => p.tipo || "Otros"))];
+    let primer = null;
+
+    tipos.forEach(tipo => {
+      const og = document.createElement("optgroup");
+      og.label = tipo;
+
+      CATALOGO_FIJO
+        .filter(p => (p.tipo || "Otros") === tipo)
+        .sort((a,b) => a.nombre.localeCompare(b.nombre))
+        .forEach(p => {
+          if (!primer) primer = p;
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = `${p.nombre} — ${eur(p.precio)}`;
+          og.appendChild(opt);
+        });
+
+      sel.appendChild(og);
+    });
+
+    if (primer) {
+      sel.value = primer.id;
+      precioInput.value = primer.precio;
+    }
+
+    sel.onchange = () => {
+      const p = CATALOGO_FIJO.find(x => x.id === sel.value);
+      precioInput.value = p ? p.precio : "";
+    };
+
+    setDebug(`Catálogo OK: ${CATALOGO_FIJO.length} productos · ${tipos.length} tipos.`);
+  }
+
+  // ---------- Pedido ----------
+  function limpiarLinea() {
+    document.getElementById("inpCantidad").value = 1;
+    const id = document.getElementById("selProducto").value;
+    const p = CATALOGO_FIJO.find(x => x.id === id);
+    document.getElementById("inpPrecio").value = p ? p.precio : "";
+  }
+
+  function addLinea() {
+    const id = document.getElementById("selProducto").value;
+    const prod = CATALOGO_FIJO.find(x => x.id === id);
+    if (!prod) return alert("No se encontró el producto. Si ves el selector vacío, revisa Debug.");
+
+    const cantidad = Number(document.getElementById("inpCantidad").value || 0);
+    if (cantidad <= 0) return alert("La cantidad debe ser mayor que 0.");
+
+    const existente = pedido.lineas.find(l => l.id === id);
+    if (existente) existente.cantidad += cantidad;
+    else pedido.lineas.push({ id, tipo: prod.tipo, nombre: prod.nombre, precio: prod.precio, cantidad });
+
+    pedido.iva = Number(document.getElementById("inpIVA").value || pedido.iva || 0);
+    savePedido();
+    renderPedido();
+    limpiarLinea();
+  }
+
+  function removeLinea(idx) {
+    pedido.lineas.splice(idx, 1);
+    savePedido();
+    renderPedido();
+  }
+
+  function nuevoPedido() {
+    pedido = { lineas: [], iva: Number(document.getElementById("inpIVA").value || 21), numAlbaran: generarNumAlbaran(true) };
+    savePedido();
+    renderPedido();
+    alert("Pedido borrado. Puedes empezar uno nuevo.");
+  }
+
+  // IVA incluido en precios: total = suma líneas; IVA solo se desglosa
+  function calcTotales() {
+    const total = pedido.lineas.reduce((s,l) => s + (Number(l.precio)*Number(l.cantidad)), 0);
+    const ivaPct = Number(pedido.iva || 0);
+    const factor = 1 + (ivaPct / 100);
+    const base = ivaPct > 0 ? (total / factor) : total;
+    const ivaImp = total - base;
+    return { base, ivaPct, ivaImp, total };
+  }
+
+  function renderPedido() {
+    document.getElementById("inpIVA").value = pedido.iva ?? 21;
+    document.getElementById("inpNumAlbaran").value = pedido.numAlbaran || "";
+
+    const cont = document.getElementById("pedidoTabla");
+    if (!pedido.lineas.length) {
+      cont.innerHTML = `<div class="muted">No hay líneas en el pedido. Añade productos.</div>`;
+      return;
+    }
+
+    const { base, ivaPct, ivaImp, total } = calcTotales();
+
+    let html = `<table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th class="right">Precio</th>
+          <th class="right">Cantidad</th>
+          <th class="right">Importe</th>
+          <th></th>
+        </tr>
+      </thead><tbody>`;
+
+    pedido.lineas.forEach((l, idx) => {
+      const imp = Number(l.precio)*Number(l.cantidad);
+      html += `<tr>
+        <td>${escapeHtml(l.nombre)} <span class="pill">${escapeHtml(l.tipo || "")}</span></td>
+        <td class="right">${eur(l.precio)}</td>
+        <td class="right">${l.cantidad}</td>
+        <td class="right">${eur(imp)}</td>
+        <td class="right"><button class="danger" onclick="removeLinea(${idx})" style="padding:6px 10px;border-radius:10px">X</button></td>
+      </tr>`;
+    });
+
+    html += `</tbody></table>
+      <div class="totals" style="margin-top:10px">
+        <div class="kv">
+          <div>Base imponible (sin IVA)</div><div class="right">${eur(base)}</div>
+          <div>IVA incluido (${ivaPct}%)</div><div class="right">${eur(ivaImp)}</div>
+          <div><strong>Total (IVA incl.)</strong></div><div class="right"><strong>${eur(total)}</strong></div>
+        </div>
+      </div>`;
+
+    cont.innerHTML = html;
+  }
+
+  // ---------- Albarán ----------
+  function irAlbaran() {
+    if (!pedido.lineas || pedido.lineas.length === 0) {
+      alert("Primero añade productos al pedido.");
+      return;
+    }
+
+    // Empresa fija
+    document.getElementById("empNombre").value = EMPRESA_FIJA.nombre;
+    document.getElementById("empContacto").value = EMPRESA_FIJA.contacto;
+    document.getElementById("empNif").value = EMPRESA_FIJA.nif;
+    document.getElementById("empDir").value = EMPRESA_FIJA.direccion;
+
+    // Defaults
+    if (!document.getElementById("albFecha").value) {
+      document.getElementById("albFecha").valueAsDate = new Date();
+    }
+    document.getElementById("albNum").value = pedido.numAlbaran || "";
+
+    cambiarTab("albaran");
+  }
+
+  function refrescarAlbaran() {
+    if (!pedido.lineas.length) {
+      document.getElementById("printArea").innerHTML = `<div class="muted">No hay pedido. Vuelve a “Pedido”.</div>`;
+      return;
+    }
+
+    const datos = {
+      empNombre: EMPRESA_FIJA.nombre,
+      empContacto: EMPRESA_FIJA.contacto,
+      empNif: EMPRESA_FIJA.nif,
+      empDir: EMPRESA_FIJA.direccion,
+      cliNombre: document.getElementById("cliNombre")?.value || "",
+      cliDir: document.getElementById("cliDir")?.value || "",
+      fecha: document.getElementById("albFecha")?.value || "",
+      num: document.getElementById("albNum")?.value || "",
+      obs: document.getElementById("albObs")?.value || ""
+    };
+
+    const { base, ivaPct, ivaImp, total } = calcTotales();
+
+    let lineasHtml = `<table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th class="right">Precio</th>
+          <th class="right">Cantidad</th>
+          <th class="right">Importe</th>
+        </tr>
+      </thead><tbody>`;
+
+    pedido.lineas.forEach(l => {
+      const imp = Number(l.precio)*Number(l.cantidad);
+      lineasHtml += `<tr>
+        <td>${escapeHtml(l.nombre)} <span class="pill">${escapeHtml(l.tipo || "")}</span></td>
+        <td class="right">${eur(l.precio)}</td>
+        <td class="right">${l.cantidad}</td>
+        <td class="right">${eur(imp)}</td>
+      </tr>`;
+    });
+
+    lineasHtml += `</tbody></table>`;
+
+    const html = `
+      <div class="albaran-head">
+        <div class="box" style="flex:1">
+          <h3>ALBARÁN</h3>
+          <div class="kv">
+            <div>Nº</div><div>${escapeHtml(datos.num) || "-"}</div>
+            <div>Fecha</div><div>${escapeHtml(datos.fecha) || "-"}</div>
+          </div>
+        </div>
+        <div class="box" style="flex:2">
+          <h3>Emisor</h3>
+          <div class="kv">
+            <div>Empresa</div><div>${escapeHtml(datos.empNombre) || "-"}</div>
+            <div>Contacto</div><div>${escapeHtml(datos.empContacto) || "-"}</div>
+            <div>NIF/CIF</div><div>${escapeHtml(datos.empNif) || "-"}</div>
+            <div>Dirección</div><div>${escapeHtml(datos.empDir) || "-"}</div>
+          </div>
+        </div>
+        <div class="box" style="flex:2">
+          <h3>Cliente</h3>
+          <div class="kv">
+            <div>Nombre</div><div>${escapeHtml(datos.cliNombre) || "-"}</div>
+            <div>Dirección</div><div>${escapeHtml(datos.cliDir) || "-"}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">${lineasHtml}</div>
+
+      <div class="totals" style="margin-top:12px">
+        <div class="box">
+          <div class="kv">
+            <div>Base imponible (sin IVA)</div><div class="right">${eur(base)}</div>
+            <div>IVA incluido (${ivaPct}%)</div><div class="right">${eur(ivaImp)}</div>
+            <div><strong>Total (IVA incl.)</strong></div><div class="right"><strong>${eur(total)}</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="box" style="margin-top:12px">
+        <h3>Observaciones</h3>
+        <div>${escapeHtml(datos.obs).replace(/\n/g,"<br>") || "<span class='muted'>—</span>"}</div>
+      </div>
+
+      <div class="muted" style="margin-top:10px">
+        Documento generado desde una app local (HTML). Puedes imprimir o guardar como PDF.
+      </div>
+    `;
+
+    document.getElementById("printArea").innerHTML = html;
+  }
+
+  // ---------- Init seguro ----------
+  document.addEventListener("DOMContentLoaded", () => {
+    loadPedido();
+    renderSelector();
+    renderPedido();
+
+    document.getElementById("btnAdd").addEventListener("click", addLinea);
+    document.getElementById("btnClear").addEventListener("click", limpiarLinea);
+    document.getElementById("btnNew").addEventListener("click", nuevoPedido);
+    document.getElementById("btnAlb").addEventListener("click", irAlbaran);
+    document.getElementById("btnRefresh").addEventListener("click", refrescarAlbaran);
+
+    setDebug(`Listo. Catálogo: ${CATALOGO_FIJO.length} productos.`);
+  });
+</script>
+</body>
+</html>
